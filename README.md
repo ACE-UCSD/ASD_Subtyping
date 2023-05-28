@@ -1,4 +1,5 @@
 # ASD Subtyping
+This repo contains the follwing notebooks. 
 ## SNF
 * Preparing the input layers
 * Running SNF
@@ -31,4 +32,3 @@
 * dunn_test
 * PostHoc Tests
 * QANOVA
-* 
