@@ -19,7 +19,7 @@ This repo contains the follwing notebooks.
 * Cluster enrichment visualization
 ## Cluster Enrichment
 * Cluster enrichment visualization
-## 
+## Statistical Analysis
 * Checking the ANOVA assumptions
 *   Shapiro-Wilk test
 *   Homogneity of variance assumption (Levene.test)
