@@ -1,0 +1,695 @@
+---
+title: "Statistical Analysis of the Clinical Characteristics"
+output:
+  html_document:
+    df_print: paged
+---
+In this notebook, I tried to assess the differences between the obtained clusters in terms of different clinical measurements.  
+
+## Loading libraries 
+
+Rquierd libraries 
+```{r Loading libraries, message=FALSE, warning=FALSE}
+library(ggpubr)
+library(stargazer)
+library(rstatix)
+library(GFD)
+library(knitr)
+library(stargazer)
+library(rockchalk)
+library(statsExpressions)
+library(effectsize)
+library(emmeans)
+
+```
+
+## Cluster (Group)  difference analysis 
+### Checking the ANOVA assumptions
+#### preparing the data
+
+##### iSNF measures Definition
+Twelve different patient similarity networks (PSNs) have been constructed using eight different clinical measures (we called them iSNF clinical measures) and four transcriptomic views (Figure 1.A). 
+Clinical PSNs
+Each clinical PSN was constructed based on the similarity of subjects according to one clinical measure. We used three measures from Mullen Scales of Early Learning: expressive language t-score (ELT), receptive language t-score (RLT), and standardized early learning composite (ELC) score. Also, we used five standardized measures from Vineland Adaptive Behavior Scales: daily living score, social score, adaptive behavior composite score (ABC), and total motor score.  
+Transcriptomic PSNs
+
+##### xSNF measures Definition
+We used seven xSNF clinical measures, which were not used as input in the SNF, to evaluate the cluster separation. These seven metrics include three main measures which assess the symptom severity of ASD including ADOS.CoSo, ADOS.RR, and ADOS.Total, two measures from Mullen Scales of Early Learning including FMT and VRT, and two eye-tracking metrics including percent fixation on the geometric video (compare to social video) namely FixationGeo, and saccades per second when the subject was looking at the social video (SaccadsPerSecSo).
+
+```{r reading the pheno data, warning=FALSE }
+#path to phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3
+#"/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/SNP.Variant.Calling/MIPS" 
+load("/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/SNP.Variant.Calling/MIPS/phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3")
+#DX.Two.Level is a factor variable with two levels: ASD, which shows the subject is an autistic toddler, and nonASD
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$DX.Two.Level <-
+  as.factor(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$DX.Two.Level)
+#Age shows the age in month
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Age <-
+  as.numeric(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Age)
+#"Clinical.Measure.Values" variable contains the values for 15 differente clinical measurement types including eight "iSNF" and seven "xSNF"
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Clinical.Measure.Values <-
+  as.numeric(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Clinical.Measure.Values)
+
+#"Cluster" shows the cluster number for each subject
+#coverting "Cluster" to a factor varible with appropriate levels
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Cluster <- 
+  factor(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Cluster, levels= c("Cluster1", "Cluster2", "Cluster3", "Cluster4") )
+```
+
+```{r taking a general look at the data}
+str(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3)
+print("=====================================================================")
+table(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$DX.Two.Level)
+print("=====================================================================")
+#"Clinical.Measure.Values" variable contains the values for 15 differente clinical measurement types including eight "iSNF" and seven "xSNF". So, each clinical measure has 363 values (we have 363 subjects)
+table(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Cluster)
+print("=====================================================================")
+#"Cluster" shows the cluster number for each subject
+table(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3$Clinical.Measure)
+print("=====================================================================")
+```
+
+#### Normality 
+##### qqplot 
+```{r qqplot, warning=FALSE}
+
+pdf("qqplot.4.all.data.per.each.clinical.measurement.pdf", height = 20, width = 20)
+ggqqplot(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3, 
+         "Clinical.Measure.Values", facet.by = "Clinical.Measure")
+
+dev.off()
+
+#Eight iSNF 
+eight.main.clinical.measures <-
+  c("ABC",
+    "Communication",
+    "DailyLiving",
+    "ELC", 
+    "ELT",
+    "Motor" ,
+    "RLT",
+    "Social"
+  )
+#pdf("qqplot.4.eight.input.clinical..measurement.pdf")
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  filter(Clinical.Measure %in% eight.main.clinical.measures) %>%
+  ggqqplot("Clinical.Measure.Values", facet.by = "Clinical.Measure")
+#dev.off()
+
+#Segregated by cluster
+pdf("../qqplot.4.eight.input.clinical.measurement.segregated.by.cluster.pdf", height = 40, width = 20)
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  filter(Clinical.Measure %in% eight.main.clinical.measures) %>%
+  ggqqplot("Clinical.Measure.Values") +  
+  facet_wrap(Clinical.Measure ~ Cluster, ncol=3, scales='free')
+dev.off()
+
+
+#Only seven external validation measures (xSNF)
+seven.externalValidation.clinical.measures <-
+  c(
+    "ADOS.CoSo",
+    "ADOS.RR",
+    "ADOS.Total",
+    "SaccPerSecS",
+    "FixationGeo",
+    "LH.temporal",
+    "RH.temporal"
+  )
+pdf("qqplot.4.Seven.ExternalValidation.clinical..measurement.pdf")
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  filter(Clinical.Measure %in% seven.externalValidation.clinical.measures) %>%
+  ggqqplot("Clinical.Measure.Values", facet.by = "Clinical.Measure")
+dev.off()
+#segregated by cluster
+pdf("qqplot.4.sevene.ExternalValidation.measurement.segregated.by.cluster.pdf", height = 40, width = 20)
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  filter(Clinical.Measure %in% seven.externalValidation.clinical.measures) %>%
+  ggqqplot("Clinical.Measure.Values") +  
+  facet_wrap(Clinical.Measure ~ Cluster, ncol=3, scales='free')
+dev.off()
+
+
+#Ckecking the log normalized version===============================
+phenoData.4.09.2022.SNF.4Clusters.12.Layers.for.ANOVA.v4 <- 
+  mutate(phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3, 
+         logClinical.Measure.values = log10(Clinical.Measure.Values+1))
+# save(phenoData.4.09.2022.SNF.4Clusters.12.Layers.for.ANOVA.v4,
+#      file = "phenoData.4.09.2022.SNF.4Clusters.12.Layers.for.ANOVA.v4")
+
+pdf("qqplot.4.Seven.ExternalValidation.clinical.log.normalized.measurement.pdf")
+phenoData.4.09.2022.SNF.4Clusters.12.Layers.for.ANOVA.v4 %>%
+  dplyr::filter(Clinical.Measure %in% seven.externalValidation.clinical.measures) %>%
+  ggqqplot("logClinical.Measure.values", facet.by = "Clinical.Measure")
+dev.off()
+#segregated by cluster
+pdf("qqplot.4.sevene.ExternalValidation.measurement.segregated.by.cluster.log.normalized..pdf", height = 40, width = 20)
+phenoData.4.09.2022.SNF.4Clusters.12.Layers.for.ANOVA.v4 %>%
+  dplyr::filter(Clinical.Measure %in% seven.externalValidation.clinical.measures) %>%
+  ggqqplot("logClinical.Measure.values") +  
+  facet_wrap(Clinical.Measure ~ Cluster, ncol=3, scales='free')
+dev.off()
+```
+
+##### Density plot
+```{r Densityplot}
+
+#density plot=====================================================
+pdf("densityplot.eight.measures.pdf")
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  dplyr::filter(Clinical.Measure %in% eight.main.clinical.measures) %>%
+  ggplot(aes(x = Clinical.Measure.Values)) + 
+  geom_density() + facet_wrap(Clinical.Measure~., scales = "free")
+dev.off()
+
+pdf("densityplot.seven.measures.pdf")
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  dplyr::filter(Clinical.Measure %in% seven.externalValidation.clinical.measures) %>%
+  ggplot(aes(x = Clinical.Measure.Values)) + 
+  geom_density() + facet_wrap(Clinical.Measure~., scales = "free")
+dev.off()
+#Ckecking the log normalized version===============================
+pdf("densityplot.eight.measures.lognormalized.pdf")
+phenoData.4.09.2022.SNF.4Clusters.12.Layers.for.ANOVA.v4 %>%
+  dplyr::filter(Clinical.Measure %in% eight.main.clinical.measures) %>%
+  ggplot(aes(x = logClinical.Measure.values)) + 
+  geom_density() + facet_wrap(Clinical.Measure~., scales = "free")
+dev.off()
+
+pdf("densityplot.seven.measures.measures.lognormalized.pdf")
+phenoData.4.09.2022.SNF.4Clusters.12.Layers.for.ANOVA.v4 %>%
+  dplyr::filter(Clinical.Measure %in% seven.externalValidation.clinical.measures) %>%
+  ggplot(aes(x = logClinical.Measure.values)) + 
+  geom_density() + facet_wrap(Clinical.Measure~., scales = "free")
+dev.off()
+
+```
+
+##### Shapiro-Wilk test
+```{r Doing Shapiro-Wilk test, warning=FALSE}
+ 
+Shapiro.Wilk.normality.test.grouped_by.Clinical.Measure.and.Cluster <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  shapiro_test(Clinical.Measure.Values)
+View(Shapiro.Wilk.normality.test.grouped_by.Clinical.Measure.and.Cluster)
+#pickling the object
+save(Shapiro.Wilk.normality.test.grouped_by.Clinical.Measure.and.Cluster,
+     file = "./Shapiro.Wilk.normality.test.grouped_by.Clinical.Measure.and.Cluster")
+#writing in a csv file 
+write.csv(Shapiro.Wilk.normality.test.grouped_by.Clinical.Measure.and.Cluster,
+          file = "Shapiro.Wilk.normality.test.grouped_by.Clinical.Measure.and.Cluster.csv")
+```
+
+
+```{r shapiro_test on the residual}
+
+#This chunk is applying shapiro_test on the residual of the fitted linear models on each clinical measures
+#initializing the final data frame
+Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df <-
+  matrix(ncol = 3)
+#the shapiro_test has threeresults
+colnames(Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df) <- 
+  c("variable",  "statistic", "p.value")
+Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df <-
+  as.data.frame(Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df)
+#"clinical.measure.of.interest" is the set of 8 iSNF and 7 xSNF measures (all 15 clinical measures) 
+clinical.measure.of.interest <-
+  c(eight.main.clinical.measures, seven.externalValidation.clinical.measures)
+#in each iteration shapiro_test is being applied on the residual of the fitted linear models on a clinical measures
+for (current.clinical.measure in clinical.measure.of.interest) 
+{
+  #selecting a subset of the dataset for one clinical measure
+  temp <-
+    phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+    dplyr::filter(Clinical.Measure == current.clinical.measure)
+  res.normality.shapiro_test <-
+    lm(Clinical.Measure.Values ~ Age + Cluster, data = temp) %>%
+    residuals() %>%
+    shapiro_test()
+  #assigning the appropriate name to the varible 
+  res.normality.shapiro_test$variable <- 
+    current.clinical.measure
+  #adding to the final df
+  Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df <- 
+    rbind(Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df, 
+          res.normality.shapiro_test)
+}
+#removing the frist row (which is NA)
+Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df <-
+  Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df[-1,]
+View(Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df)
+#picking the fina data frame as an R object
+save(Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df,
+     file = "Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df")
+#Writing the fina data as a csv file for more insepction 
+write.csv(Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df,
+          file = "Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df.csv")
+#extracting the non-normal measures
+non.normal.clinical.measures <- 
+  Shapiro.Wilk.normality.test.based.on.model.residual.grouped_by.Clinical.Measure.df %>%
+  dplyr::filter(p.value < 0.01) %>%
+  select(variable)
+# variable
+# 1           ABC
+# 2 Communication
+# 3           ELC
+# 4         Motor
+# 5           RLT
+# 6       ADOS.RR
+# 7   SaccPerSecS
+# 8   FixationGeo
+```
+
+#### Homogneity of variance assumption (Levene.test)
+```{r Homogneity of variance assumption}
+#Here we are going to do the Levene’s test to check the homogeneity of variances.
+#levene_test is a wrapper around the function leveneTest(), which can additionally handles a grouped data.
+Levene.test.Homogneity.of.variance.test.grouped_by.Clinical.Measure <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  levene_test(Clinical.Measure.Values ~ Cluster)
+View(Levene.test.Homogneity.of.variance.test.grouped_by.Clinical.Measure)
+save(Levene.test.Homogneity.of.variance.test.grouped_by.Clinical.Measure,
+     file = "Levene.test.Homogneity.of.variance.test.grouped_by.Clinical.Measure")
+write.csv(Levene.test.Homogneity.of.variance.test.grouped_by.Clinical.Measure,
+          file = "Levene.test.Homogneity.of.variance.test.grouped_by.Clinical.Measure.csv")
+
+#Filtering based on p <= 0.01=======
+heteroscedastisit.clinical.measures <-
+  Levene.test.Homogneity.of.variance.test.grouped_by.Clinical.Measure %>%
+  dplyr::filter(p <= 0.01) %>%
+  select(Clinical.Measure)
+#!!!Result
+#heteroscedastisic.clinical mesures
+# A tibble: 3 × 1
+# Clinical.Measure
+# <chr>           
+# 1 ADOS.CoSo       
+# 2 ADOS.RR         
+# 3 ADOS.Total  
+```
+
+
+
+### Assessing the age effect
+
+```{r anova_test for assesing age effect}
+#checking age as an interaction (ANCOVA)=====
+res.ancova.all.19.clinical.measures <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  anova_test(Clinical.Measure.Values ~ Cluster*Age) 
+save(res.ancova.all.19.clinical.measures,
+     file = "res.ancova.all.19.clinical.measures")
+write.csv(res.ancova.all.19.clinical.measures,
+          file = "res.ancova.all.19.clinical.measures.csv")
+kable(res.ancova.all.19.clinical.measures)
+#!!!RESULT
+#it is significant in: 
+#FixationGeo; mullen_FMT_1; mullen_VRT_1; and	SaccPerSecRatio (not 	SaccPerSecS)
+#sig cluster*age interaction: 	"ELC", "mullen_FMT_1", "mullen_VRT_1"
+Clinical.Measure.age.interaction <- 
+  c("ELC", "mullen_FMT_1", "mullen_VRT_1")
+#sig age effect: 	"ABC", "ADOS.RR", "Communication", "FixationGeo", "Motor", "Social"
+Clinical.Measure.age.covariate.effect <- 
+  c("ABC", "ADOS.RR", "Communication", "FixationGeo", "Motor", "Social")
+
+```
+
+```{r age.sig.reg.line.conf, fig.height = 30, fig.width = 30 }
+#pdf("age.sig.reg.line.conf.int.v4.pdf", height = 20, width = 20)
+phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  dplyr::filter(Clinical.Measure !="SaccPerSecRatio") %>%
+  ggscatter( x = "Age", y = "Clinical.Measure.Values",
+             color = "Cluster", add = "reg.line", conf.int = TRUE) + 
+  stat_regline_equation(
+    aes(label =  paste(..eq.label.., ..rr.label.., sep = "~~~~"), 
+        color = Cluster)
+  ) + facet_wrap(Clinical.Measure ~ ., ncol = 4, scales='free')+ 
+  scale_color_manual(values = c("1" = "#33DD00","2" = "#FFCC00",#lines and points colors
+                                "3" = "#FF6600", "4" = "red"))+
+  scale_fill_manual(values = c("1" = "#33DD00","2" = "#FFCC00",
+                               "3" = "#FF6600", "4" = "red")) + theme_gray()
+
+#dev.off()
+
+```
+
+### ANCOVA
+```{r Doing ANCOVA }
+#depending on the 
+
+#"The orders of variables matters when computing ANCOVA. "
+#"You want to remove the effect of the covariate first - that is, you want to control for it - prior to entering your main variable or interest."
+
+#depending on whether age and/or age*cluster were significant and also considering the BIC one the following results will be used for a clinical measure.
+#using "Age + Age*Cluster + Cluster" covariates======
+res.ANCOVA.all.19.clinical.measures.0 <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  anova_test(Clinical.Measure.Values ~ Age + Age*Cluster + Cluster) 
+View(res.ANCOVA.all.19.clinical.measures.0)
+save(res.ANCOVA.all.19.clinical.measures.0,
+     file = "res.ANCOVA.all.19.clinical.measures.0")
+write.csv(res.ANCOVA.all.19.clinical.measures,
+          file = "res.ANCOVA.all.19.clinical.measures.0.csv")
+
+
+# Clinical.Measure.age.interaction <- 
+#   c("ELC", "mullen_FMT_1", "mullen_VRT_1")
+# #sig age effect: 	"ABC", "ADOS.RR", "Communication", "FixationGeo", "Motor", "Social"
+# Clinical.Measure.age.covariate.effect <- 
+#   c("ABC", "ADOS.RR", "Communication", "FixationGeo", "Motor", "Social")
+
+#using "Age + Cluster" as covariate ======
+res.ANCOVA.all.19.clinical.measures.1 <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  anova_test(Clinical.Measure.Values ~ Age + Cluster) 
+
+#using "Age + Cluster" as covariate ======
+res.ANCOVA.all.19.clinical.measures.2 <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure, Cluster) %>%
+  anova_test(Clinical.Measure.Values ~ Age ) 
+
+
+```
+
+### BIC and AIC
+Deciding between ANCOVA and Moderated Regression based on BIC 
+```{r BIC and AIC}
+
+i <- 1 #index of the current clinical measures that had age*cluster interaction
+single.Clinical.Measure.age.interaction <- 
+  Clinical.Measure.age.interaction[i]
+
+phenoData_Subset_4_currentClinMeasure <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  dplyr::filter(Clinical.Measure == single.Clinical.Measure.age.interaction) 
+#fitting three different lm models (1- without covariate, 2- age as covariate, and 3- age and age*cluster interaction as the covariates)
+fitted_lm_WO_Cov_4_currentClinMeasure <- 
+  lm(formula = Clinical.Measure.Values ~  Cluster, data = phenoData_Subset_4_currentClinMeasure)
+summary(fitted_lm_WO_Cov_4_currentClinMeasure)
+
+fitted_lm_Age_Cov_4_currentClinMeasure <- 
+  lm(formula = Clinical.Measure.Values ~ Age + Cluster, data = phenoData_Subset_4_currentClinMeasure)
+summary(fitted_lm_Age_Cov_4_currentClinMeasure)
+
+fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure <- 
+  lm(formula = Clinical.Measure.Values ~ Age + Age*Cluster + Cluster, data = phenoData_Subset_4_currentClinMeasure)
+
+#Comparing the three fitted models
+summary(fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure)
+anova(fitted_lm_WO_Cov_4_currentClinMeasure, fitted_lm_Age_Cov_4_currentClinMeasure)
+anova(fitted_lm_Age_Cov_4_currentClinMeasure, fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure)
+anova(fitted_lm_WO_Cov_4_currentClinMeasure, fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure)
+#moderator analysis========
+#ref: https://ademos.people.uic.edu/Chapter14.html
+#ref: http://dwoll.de/rexrepos/posts/regressionModMed.html
+#ref: https://advstats.psychstat.org/book/moderation/index.php
+
+coef(summary(fitted_lm_WO_Cov_4_currentClinMeasure))
+coef(summary(fitted_lm_Age_Cov_4_currentClinMeasure))
+coef(summary(fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure))
+
+
+stargazer(fitted_lm_WO_Cov_4_currentClinMeasure,type="text")
+stargazer(fitted_lm_Age_Cov_4_currentClinMeasure,type="text")
+stargazer(fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure,type="text")
+
+
+file.name.4.writing <- 
+  paste("plotSlopes", Clinical.Measure.age.interaction[i]
+        ,".pdf" , sep = "")
+pdf(file.name.4.writing)
+plotSlopes(fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure, plotx ="Cluster", modx = "Age", modxVals = "std.dev")
+dev.off()
+#AIC BIC=============
+#ref:
+#https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/AIC
+#https://www.statology.org/aic-in-r/
+#http://www.sthda.com/english/articles/38-regression-model-validation/158-regression-model-accuracy-metrics-r-square-aic-bic-cp-and-more/
+
+#calculate AIC of each model
+aictab(cand.set = models, modnames = mod.names)
+#another way of computing AIC and BIC
+library('stats')
+res.bic <- 
+  BIC(fitted_lm_WO_Cov_4_currentClinMeasure, fitted_lm_Age_Cov_4_currentClinMeasure, fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure)
+file.name.4.writing <- 
+  paste("res.bic", Clinical.Measure.age.interaction[i]
+        ,".csv" , sep = "")
+write.csv(res.bic,
+          file.name.4.writing)
+
+file.name.4.writing <- 
+  paste("aic.bic", Clinical.Measure.age.interaction[i]
+        ,".csv" , sep = "")
+res.aic <- 
+  AIC(fitted_lm_WO_Cov_4_currentClinMeasure, fitted_lm_Age_Cov_4_currentClinMeasure, fitted_lm_Age_AgeCluster_Cov_4_currentClinMeasure)
+i <- 
+  i+1
+
+```
+
+
+
+
+
+
+
+
+
+
+### ANOVA
+#### Original ANOVA
+```{r ANOVA}
+res.ANOVA.all.19.clinical.measures <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  anova_test(Clinical.Measure.Values ~ Cluster) 
+View(res.ANOVA.all.19.clinical.measures)
+save(res.ANOVA.all.19.clinical.measures,
+     file = "res.ANOVA.all.19.clinical.measures")
+write.csv(res.ANOVA.all.19.clinical.measures,
+          file = "res.ANOVA.all.19.clinical.measures.csv")
+
+```
+
+#### kruskal_test (non-normal)
+```{r kruskal_tes}
+res.kruskal.test.all.19.clinical.measures <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  kruskal_test(Clinical.Measure.Values ~ Cluster) 
+View(res.kruskal.test.all.19.clinical.measures)
+save(res.kruskal.test.all.19.clinical.measures,
+     file = "res.kruskal.test.all.19.clinical.measures")
+write.csv(res.kruskal.test.all.19.clinical.measures,
+          file = "res.kruskal.test.all.19.clinical.measures.csv")
+#just RH.temporal was not sig
+```
+
+
+```{r kruskal_effsize}
+res.kruskal_effsize.all.19.clinical.measures <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  kruskal_effsize(Clinical.Measure.Values ~ Cluster) 
+View(res.kruskal_effsize.all.19.clinical.measures)
+#!!!RESULTS: eye ET tests and fMRI have small effect size and all other have large
+save(res.kruskal_effsize.all.19.clinical.measures,
+     file = "res.kruskal_effsize.all.19.clinical.measures")
+write.csv(res.kruskal_effsize.all.19.clinical.measures,
+          file = "res.kruskal_effsize.all.19.clinical.measures.csv")
+
+```
+
+#### welch (heteroscedastisity)
+```{r welch_anova_test}
+
+res.welch_anova_test.all.19.clinical.measures <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  group_by(Clinical.Measure) %>%
+  welch_anova_test(Clinical.Measure.Values ~ Cluster) 
+View(res.welch_anova_test.all.19.clinical.measures)
+save(res.welch_anova_test.all.19.clinical.measures,
+     file = "res.welch_anova_test.all.19.clinical.measures")
+write.csv(res.welch_anova_test.all.19.clinical.measures,
+          file = "res.welch_anova_test.all.19.clinical.measures.csv")
+```
+
+```{r welch effect size}
+#computing the estimated omega squared effect size for Welch ANOVA======
+#ref: https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwjbgOj2tP32AhX9JkQIHXqUCJcQFnoECAYQAQ&url=http%3A%2F%2Foak.ucc.nau.edu%2Frh232%2Fcourses%2FEPS625%2FHandouts%2FOne-Way%2520ANOVA%2FANOVA%2520-%2520Example%2520-%2520Welch%2520and%2520G-H%2520-%2520Key.pdf&usg=AOvVaw3nX8lx1bB8ch_rKgGAuzDa
+common.term<- 
+  (res.welch_anova_test.all.19.clinical.measures$DFn*(res.welch_anova_test.all.19.clinical.measures$statistic-1))
+res.welch_anova_test.all.19.clinical.measures$effectOmegaSquered <- 
+  common.term/(common.term + 363)#363 is the total sample size
+save(res.welch_anova_test.all.19.clinical.measures,
+     file = "res.kruskal.test.all.19.clinical.measures")
+write.csv(res.welch_anova_test.all.19.clinical.measures,
+          file = "res.kruskal.test.all.19.clinical.measures.csv")
+
+#eta and omega_squared
+res.welch_anova_test.ADOS.Total <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>%
+  filter(Clinical.Measure == "ADOS.Total") %>%
+  welch_anova_test(Clinical.Measure.Values ~ Cluster) 
+statsExpressions::eta(model = res.welch_anova_test.ADOS.Total)
+omega_squared(res.welch_anova_test.ADOS.Total)
+
+```
+
+
+
+## PostHoc Tests
+
+pairwise tests: for those measures that are normal and has the same variance in each group 
+```{r pairwise tests}
+res.allpairwise.comparison.all.19.clinical.measures<- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>% 
+  group_by(Clinical.Measure) %>%
+  pairwise_t_test(
+    Clinical.Measure.Values ~ Cluster, 
+    p.adjust.method = "BH"
+  )
+View(res.allpairwise.comparison.all.19.clinical.measures)
+save(res.allpairwise.comparison.all.19.clinical.measures,
+     file = "res.allpairwise.comparison.all.19.clinical.measures")
+write.csv(res.allpairwise.comparison.all.19.clinical.measures,
+          file = "res.allpairwise.comparison.all.19.clinical.measures.csv")
+
+```
+
+### dunn_test
+dunn_test: for non-normal measures. 
+"DunnTest performs the post hoc pairwise multiple comparisons procedure appropriate to follow up a Kruskal-Wallis test, which is a non-parametric analog of the one-way ANOVA. 
+"
+
+```{r dunn_test}
+#post hoc tests dunn_test========
+res.allpairwise.dunn_test.comparison.all.19.clinical.measures<- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>% 
+  group_by(Clinical.Measure) %>%
+  dunn_test(
+    Clinical.Measure.Values ~ Cluster, 
+    p.adjust.method = "BH"
+  )
+View(res.allpairwise.dunn_test.comparison.all.19.clinical.measures)
+save(res.allpairwise.dunn_test.comparison.all.19.clinical.measures,
+     file = "res.allpairwise.dunn_test.comparison.all.19.clinical.measures")
+write.csv(res.allpairwise.dunn_test.comparison.all.19.clinical.measures,
+          file = "res.allpairwise.dunn_test.comparison.all.19.clinical.measures.csv")
+#!!!RESULTS: all are sig!
+
+```
+
+wilcox_test: for non-normal measures. 
+```{r wilcox_test}
+#post hoc tests wilcox_test========
+res.allpairwise.wilcox_test.comparison.all.19.clinical.measures<- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>% 
+  group_by(Clinical.Measure) %>%
+  wilcox_test(
+    Clinical.Measure.Values ~ Cluster, 
+    p.adjust.method = "BH"
+  )
+View(res.allpairwise.wilcox_test.comparison.all.19.clinical.measures)
+save(res.allpairwise.wilcox_test.comparison.all.19.clinical.measures,
+     file = "res.allpairwise.wilcox_test.comparison.all.19.clinical.measures")
+write.csv(res.allpairwise.wilcox_test.comparison.all.19.clinical.measures,
+          file = "res.allpairwise.wilcox_test.comparison.all.19.clinical.measures.csv")
+
+```
+
+### post hoc tests welch 
+no assumption of equal variances
+
+```{r post hoc tests for welch}
+res.welc.allpairwise.comparison.all.19.clinical.measures<- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3 %>% 
+  group_by(Clinical.Measure) %>%
+  pairwise_t_test(
+    Clinical.Measure.Values ~ Cluster, 
+    pool.sd = FALSE,# no assumption of equal variances
+    p.adjust.method = "BH"
+  )
+save(res.welc.allpairwise.comparison.all.19.clinical.measures,
+     file = "res.welc.allpairwise.comparison.all.19.clinical.measures")
+write.csv(res.welc.allpairwise.comparison.all.19.clinical.measures,
+          file = "res.welc.allpairwise.comparison.all.19.clinical.measures.csv")
+View(res.welc.allpairwise.comparison.all.19.clinical.measures)
+
+
+```
+
+
+### post hoc tests ANCOVA 
+```{r post hoc tests for ANCOVA}
+#========
+# Clinical.Measure.age.interaction <- 
+#   c("ELC", "mullen_FMT_1", "mullen_VRT_1")
+# #sig age effect: 	"ABC", "ADOS.RR", "Communication", "FixationGeo", "Motor", "Social"
+# Clinical.Measure.age.covariate.effect <- 
+#   c("ABC", "ADOS.RR", "Communication", "FixationGeo", "Motor", "Social")
+
+#based on BIC we are goign to use ANCOVA for ELC as well
+Clinical.Measure.age.covariate.effect <- 
+  c(Clinical.Measure.age.covariate.effect, "ELC")
+
+
+res.ANCOVA.allpairwise.comparison.all.19.clinical.measures <- 
+  phenoData.4.03.2022.SNF.4Clusters.12.Layers.for.ANOVA.v3%>% 
+  dplyr::filter(Clinical.Measure %in% Clinical.Measure.age.covariate.effect)%>% 
+  group_by(Clinical.Measure) %>%
+  emmeans_test(
+    Clinical.Measure.Values ~ Cluster, 
+    covariate = Age,
+    p.adjust.method  = "BH"
+  )
+save(res.ANCOVA.allpairwise.comparison.all.19.clinical.measures,
+     file = "res.ANCOVA.allpairwise.comparison.all.19.clinical.measures")
+write.csv(res.ANCOVA.allpairwise.comparison.all.19.clinical.measures,
+          file = "res.ANCOVA.allpairwise.comparison.all.19.clinical.measures.csv")
+View(res.ANCOVA.allpairwise.comparison.all.19.clinical.measures)
+
+```
+
+
+
+```{r Comment!!}
+
+#deciding which ANOVA test should be used for different measures====
+#if the data have heteroscedastisity the use Welch, 
+#else if the normality assumption didn't meet use Kruska
+#otherwise use the anova
+#welch:
+# 1 ADOS.CoSo       
+# 2 ADOS.RR         
+# 3 ADOS.Total 
+
+#kruskal_test
+# 1           ABC
+# 2 Communication
+# 3           ELC
+# 4         Motor
+# 5           RLT
+# 6   SaccPerSecS
+# 7   FixationGeo
+
+#ANCOVA:
+#Clinical.Measure.age.covariate.effect
+#"ABC"           "ADOS.RR"       "Communication" "FixationGeo"   "Motor"         "Social"        "ELC" 
+#only Social is not in the above list
+
+
+```
+
+
+
+
+
+

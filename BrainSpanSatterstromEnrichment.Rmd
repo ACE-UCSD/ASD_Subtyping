@@ -1,0 +1,394 @@
+---
+title: "Brain Span Enrichment"
+output: html_notebook
+---
+
+In this notebook, I'm gonna do the pre-natal vs. pos-tnatal enrichment for each pathway.
+The simplesr way is using the satterstrom data and do a hypergeometric test for enrichment in pre-natal (post-natal). 
+
+```{r libs}
+library(dplyr)
+library(ggridges)
+library(ggplot2)
+```
+
+
+
+```{r data}
+#loading the related pathway data
+load( file = "./BrainSpan/halmark_gene_sets")
+#lists of 17 pathways
+load( file = "./BrainSpan/all.17.pathways")
+#list of 11 pathways
+load(file = "./BrainSpan/all.11.dysreg.pathways")
+all.17.dysreg.pathways <- 
+  all.17.pathways$PathwayName
+```
+
+```{r reading SatterStorm data}
+SatterStorm.PrePostNatal <- 
+  read.csv("./BrainSpan/SatterStorm/BrainSpan_PreNatal_vs_PostNatal.csv")
+dim(SatterStorm.PrePostNatal)
+```
+
+
+```{r merging halmark with SatterStorm}
+#all.11.dysreg.pathways: cluster level dysreg. pathways
+#all.17.dysreg.pathways: group level dysreg. pathways
+
+halmark_gene_sets.4.dysreg.pathways <- 
+  halmark_gene_sets %>%
+    filter(gs_name %in% union(all.17.dysreg.pathways, all.11.dysreg.pathways))
+dim(halmark_gene_sets.4.dysreg.pathways)#3957   15
+dim(halmark_gene_sets)#8172   15
+#assess the covarege of the genes in halmark_gene_sets.4.dysreg.pathwaysthe SatterStorm.PrePostNatal
+length(intersect(halmark_gene_sets.4.dysreg.pathways$gene_symbol, SatterStorm.PrePostNatal$Gene.symbol))#2282
+
+halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added <- 
+  merge(x = halmark_gene_sets.4.dysreg.pathways, 
+        y = SatterStorm.PrePostNatal,
+        by.x = "gene_symbol", 
+        by.y = "Gene.symbol", 
+        all.x = TRUE)
+dim(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added)#3957   22 
+
+table(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added$FetalEffect)
+# Postnatal  Prenatal  Unbiased 
+#       600       530       449 
+      
+halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized <- 
+  halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added %>%
+    group_by(gs_name)%>%
+    summarise(Total.No.of.genes = length(gene_symbol),
+              Total.No.of.genes.with.FetalEffect.Info = length(na.omit(FetalEffect)),
+              Total.No.ofPostnatalBiased = sum(na.omit(FetalEffect == "Postnatal")),
+              PostnatalBiased.pcnt = Total.No.ofPostnatalBiased/Total.No.of.genes,
+              Total.No.ofPrenatalBiased = sum(na.omit(FetalEffect == "Prenatal")),
+              PrenatalBiased.pcnt = Total.No.ofPrenatalBiased/Total.No.of.genes,
+              Total.No.ofUnbiased = sum(na.omit(FetalEffect == "Unbiased")),
+              Unbiased.pcnt = Total.No.ofUnbiased/Total.No.of.genes,
+              Total.No.of.genes.with.FetalEffect.Infov2 = (Total.No.ofPostnatalBiased + Total.No.ofPrenatalBiased + Total.No.ofUnbiased)
+            )
+dim(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized)
+
+```
+
+#p-val calucation
+
+```{r permutation}
+#initializing the final df=========
+
+#reproducubility 
+set.seed(100)
+halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND <- 
+  halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added %>%
+  filter(!is.na(FetalEffect))%>%
+  mutate(rand.FetalEffect = sample(x = FetalEffect, size = length(FetalEffect), replace = FALSE))%>%
+    group_by(gs_name)%>%
+    summarise(Total.No.of.genes = length(gene_symbol),
+              Total.No.of.genes.with.FetalEffect.Info = length(na.omit(rand.FetalEffect)),
+              Total.No.ofPostnatalBiased = sum(na.omit(rand.FetalEffect == "Postnatal")),
+              PostnatalBiased.pcnt = Total.No.ofPostnatalBiased/Total.No.of.genes,
+              Total.No.ofPrenatalBiased = sum(na.omit(rand.FetalEffect == "Prenatal")),
+              PrenatalBiased.pcnt = Total.No.ofPrenatalBiased/Total.No.of.genes,
+              Total.No.ofUnbiased = sum(na.omit(rand.FetalEffect == "Unbiased")),
+              Unbiased.pcnt = Total.No.ofUnbiased/Total.No.of.genes,
+              Total.No.of.genes.with.FetalEffect.Infov2 = (Total.No.ofPostnatalBiased + Total.No.ofPrenatalBiased + Total.No.ofUnbiased)
+            )
+#assigning gene set to rownames to avoid errors in rbind
+rownames(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND)<- 
+  (halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND$gs_name)
+#transposing
+halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND <-
+  t(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND)
+#removing geneset name row (it's redundant, because the column name has the same info)
+halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND <-
+  halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND[-1,]
+
+PrePostNatal.summarized.RND.4.All.Iterations <-
+  halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND
+  
+
+#for============
+Iter.No <- 1000
+for (i in c(1:Iter.No)) 
+{
+  print("Iter No:")
+  print(i)
+  #reproducubility 
+  set.seed(i*100)
+  halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND <- 
+    halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added %>%
+    filter(!is.na(FetalEffect))%>%
+    mutate(rand.FetalEffect = sample(x = FetalEffect, size = length(FetalEffect), replace = FALSE))%>%
+      group_by(gs_name)%>%
+      summarise(Total.No.of.genes = length(gene_symbol),
+                Total.No.of.genes.with.FetalEffect.Info = length(na.omit(rand.FetalEffect)),
+                Total.No.ofPostnatalBiased = sum(na.omit(rand.FetalEffect == "Postnatal")),
+                PostnatalBiased.pcnt = Total.No.ofPostnatalBiased/Total.No.of.genes,
+                Total.No.ofPrenatalBiased = sum(na.omit(rand.FetalEffect == "Prenatal")),
+                PrenatalBiased.pcnt = Total.No.ofPrenatalBiased/Total.No.of.genes,
+                Total.No.ofUnbiased = sum(na.omit(rand.FetalEffect == "Unbiased")),
+                Unbiased.pcnt = Total.No.ofUnbiased/Total.No.of.genes,
+                Total.No.of.genes.with.FetalEffect.Infov2 = (Total.No.ofPostnatalBiased + Total.No.ofPrenatalBiased + Total.No.ofUnbiased)
+              )
+  #assigning gene set to rownames to avoid errors in rbind
+  rownames(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND)<- 
+    (halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND$gs_name)
+  #transposing
+  halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND <-
+    t(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND)
+  #removing geneset name row (it's redundant, because the column name has the same info)
+  halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND <-
+    halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND[-1,]
+  #rbinding the new random numbers to the final df
+  PrePostNatal.summarized.RND.4.All.Iterations <- 
+    rbind(PrePostNatal.summarized.RND.4.All.Iterations,
+        halmark_gene_sets.4.dysreg.pathways.PrePostNatal.summarized.RND)
+}
+View(PrePostNatal.summarized.RND.4.All.Iterations)
+PrePostNatal.summarized.RND.4.All.IterationsT <-
+  t(PrePostNatal.summarized.RND.4.All.Iterations)
+View(PrePostNatal.summarized.RND.4.All.IterationsT)
+#transposing
+PrePostNatal.summarized.RND.4.All.IterationsT <-
+  as.data.frame(PrePostNatal.summarized.RND.4.All.IterationsT)
+#some investigation ...
+# hist(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT$PostnatalBiased.pcnt))
+# hist(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT$PrenatalBiased.pcnt))
+# hist(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT$Unbiased.pcnt))
+# range(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT$PrenatalBiased.pcnt))
+# length(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT$PrenatalBiased.pcnt))
+
+```
+
+
+
+```{r preparing the final df for Viz}
+#selecting those columns that are related to the each of the three categories (PostnatalBiased, PrenatalBiased, and Unbiased)==========
+col.indx.vctr.4.Total.No.ofPostnatalBiased <- 
+  colnames(PrePostNatal.summarized.RND.4.All.IterationsT) == "Total.No.ofPostnatalBiased"
+PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofPostnatalBiased<- PrePostNatal.summarized.RND.4.All.IterationsT[,col.indx.vctr.4.Total.No.ofPostnatalBiased]
+
+col.indx.vctr.4.Total.No.ofPrenatalBiased <- 
+  colnames(PrePostNatal.summarized.RND.4.All.IterationsT) == "Total.No.ofPrenatalBiased"
+PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofPrenatalBiased<- PrePostNatal.summarized.RND.4.All.IterationsT[,col.indx.vctr.4.Total.No.ofPrenatalBiased]
+
+
+col.indx.vctr.4.Total.No.ofUnbiased <- 
+  colnames(PrePostNatal.summarized.RND.4.All.IterationsT) == "Total.No.ofUnbiased"
+PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofUnbiased<- PrePostNatal.summarized.RND.4.All.IterationsT[,col.indx.vctr.4.Total.No.ofUnbiased]
+
+dim(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofUnbiased)
+#24 1101
+
+#View(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofUnbiased)
+
+# hist(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofPrenatalBiased["HALLMARK_MYC_TARGETS_V2",]))
+# hist(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofUnbiased["HALLMARK_MYC_TARGETS_V2",]))
+# hist(as.numeric(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofPostnatalBiased["HALLMARK_MYC_TARGETS_V2",]))
+
+
+```
+
+
+```{r preparing the ggplot friendly df }
+
+# for No.ofPrenatalBiased
+final.df.4.Viz.part.Total.No.ofPrenatalBiased <- t(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofPrenatalBiased)
+final.df.4.Viz.part.Total.No.ofPrenatalBiased <- 
+  as.data.frame(final.df.4.Viz.part.Total.No.ofPrenatalBiased)
+final.df.4.Viz.part.Total.No.ofPrenatalBiased <- 
+  cbind(ID = seq(1,nrow(final.df.4.Viz.part.Total.No.ofPrenatalBiased)), final.df.4.Viz.part.Total.No.ofPrenatalBiased)
+final.df.4.Viz.part.Total.No.ofPrenatalBiased.1 <- 
+  convert.df.2.ggplot.firndly(df = final.df.4.Viz.part.Total.No.ofPrenatalBiased, 
+                            no.of.fixed.characteristics = 0)
+#View(final.df.4.Viz.part.Total.No.ofPrenatalBiased.1)
+table(final.df.4.Viz.part.Total.No.ofPrenatalBiased.1$TotalNo.of.PrePostUnbiased)
+final.df.4.Viz.part.Total.No.ofPrenatalBiased.1$TotalNo.of.PrePostUnbiased <- 
+  rep("Total.No.ofPrenatalBiased", nrow(final.df.4.Viz.part.Total.No.ofPrenatalBiased.1))
+
+# for Total.No.ofUnbiased
+final.df.4.Viz.part.Total.No.ofUnbiased <- t(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofUnbiased)
+final.df.4.Viz.part.Total.No.ofUnbiased <- 
+  as.data.frame(final.df.4.Viz.part.Total.No.ofUnbiased)
+final.df.4.Viz.part.Total.No.ofUnbiased <- 
+  cbind(ID = seq(1,nrow(final.df.4.Viz.part.Total.No.ofUnbiased)), final.df.4.Viz.part.Total.No.ofUnbiased)
+final.df.4.Viz.part.Total.No.ofUnbiased.1 <- 
+  convert.df.2.ggplot.firndly(df = final.df.4.Viz.part.Total.No.ofUnbiased, 
+                            no.of.fixed.characteristics = 0)
+#View(final.df.4.Viz.part.Total.No.ofUnbiased.1)
+table(final.df.4.Viz.part.Total.No.ofUnbiased.1$TotalNo.of.PrePostUnbiased)
+final.df.4.Viz.part.Total.No.ofUnbiased.1$TotalNo.of.PrePostUnbiased <- 
+  rep("Total.No.ofUnbiased", nrow(final.df.4.Viz.part.Total.No.ofUnbiased.1))
+
+# for No.ofPostnatalBiased
+final.df.4.Viz.part.Total.No.ofPostnatalBiased <- t(PrePostNatal.summarized.RND.4.All.IterationsT.Total.No.ofPostnatalBiased)
+final.df.4.Viz.part.Total.No.ofPostnatalBiased <- 
+  as.data.frame(final.df.4.Viz.part.Total.No.ofPostnatalBiased)
+final.df.4.Viz.part.Total.No.ofPostnatalBiased <- 
+  cbind(ID = seq(1,nrow(final.df.4.Viz.part.Total.No.ofPostnatalBiased)), final.df.4.Viz.part.Total.No.ofPostnatalBiased)
+final.df.4.Viz.part.Total.No.ofPostnatalBiased.1 <- 
+  convert.df.2.ggplot.firndly(df = final.df.4.Viz.part.Total.No.ofPostnatalBiased, 
+                            no.of.fixed.characteristics = 0)
+#View(final.df.4.Viz.part.Total.No.ofPostnatalBiased.1)
+table(final.df.4.Viz.part.Total.No.ofPostnatalBiased.1$TotalNo.of.PrePostUnbiased)
+final.df.4.Viz.part.Total.No.ofPostnatalBiased.1$TotalNo.of.PrePostUnbiased <- 
+  rep("Total.No.ofPostnatalBiased", nrow(final.df.4.Viz.part.Total.No.ofPostnatalBiased.1))
+
+
+
+#binding them together
+final.df.4.Viz.part.Total.No.ofAllThreeTypes <- 
+  rbind(final.df.4.Viz.part.Total.No.ofPrenatalBiased.1,
+      final.df.4.Viz.part.Total.No.ofUnbiased.1,
+      final.df.4.Viz.part.Total.No.ofPostnatalBiased.1)
+
+dim(final.df.4.Viz.part.Total.No.ofAllThreeTypes)
+#View(final.df.4.Viz.part.Total.No.ofAllThreeTypes)
+
+```
+
+
+```{r calculating the p-value}
+#the original enriched data set:
+#halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized
+#random data:
+#final.df.4.Viz.part.Total.No.ofAllThreeTypes
+write.csv(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized,
+          file = "./BrainSpan/halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized.csv")
+write.csv(final.df.4.Viz.part.Total.No.ofAllThreeTypes, file = "./BrainSpan/final.df.4.Viz.part.Total.No.ofAllThreeTypes.csv")
+
+dim(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized)#24 10
+halmark.gs.names <- 
+ halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized$gs_name
+
+#extracting the only columns that we need for calculating the p-value (the real number of pre-biased,post-biased and unbiased genes for each pathway)
+halmark_gene_sets.4.dysreg.pathways.threeFetalEffects<- 
+  cbind(
+    Total.No.ofPrenatalBiased = halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized$Total.No.ofPrenatalBiased,
+    
+    Total.No.ofUnbiased = halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized$Total.No.ofUnbiased,
+    Total.No.ofPostnatalBiased = halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized$Total.No.ofPostnatalBiased,
+    gs_name = halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized$gs_name)
+#View(halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized)
+dim(halmark_gene_sets.4.dysreg.pathways.threeFetalEffects)#24  4
+halmark_gene_sets.4.dysreg.pathways.threeFetalEffects <- 
+  as.data.frame(halmark_gene_sets.4.dysreg.pathways.threeFetalEffects)
+
+colnames(halmark_gene_sets.4.dysreg.pathways.threeFetalEffects)
+# [1] "Total.No.ofPrenatalBiased"  "Total.No.ofUnbiased"       
+# [3] "Total.No.ofPostnatalBiased" "gs_name"           
+
+#convering the first three cols to numeric 
+halmark_gene_sets.4.dysreg.pathways.threeFetalEffects[,c(1:3)] <- 
+  apply(halmark_gene_sets.4.dysreg.pathways.threeFetalEffects[,c(1:3)], 2, as.numeric)
+
+#the final p.value df has the same structure as the original df for no of different genes
+p.val.4.halmark_gene_sets.4.dysreg.pathways.threeFetalEffects<-
+  halmark_gene_sets.4.dysreg.pathways.threeFetalEffects
+#setting the values to NA for all cells in the first three columns
+p.val.4.halmark_gene_sets.4.dysreg.pathways.threeFetalEffects[,c(1:3)] <- 
+  NA
+
+#main loop========
+# in each iteration we extract the p-value for one of the three FetalEffect types: prenatal, unbiased, and postnatal
+for (i in c(1:length(halmark.gs.names))) 
+{
+  for (j in c(1:3)) 
+  {
+    p.val.4.halmark_gene_sets.4.dysreg.pathways.threeFetalEffects[i,j] <- 
+    final.df.4.Viz.part.Total.No.ofAllThreeTypes %>%
+      filter(Mesearement == halmark.gs.names[i] & TotalNo.of.PrePostUnbiased ==  threeFetalEffectTypes[j]) %>% summarise(p.vale = sum(MesearementValue >= halmark_gene_sets.4.dysreg.pathways.threeFetalEffects[i,j])/length(MesearementValue))
+  }
+}
+
+write.csv(p.val.4.halmark_gene_sets.4.dysreg.pathways.threeFetalEffects,
+          file = "./BrainSpan/p.val.4.halmark_gene_sets.4.dysreg.pathways.threeFetalEffects.csv")
+
+```
+
+
+
+```{r  density plots}
+final.df.4.Viz.part.Total.No.ofAllThreeTypes$MesearementValue <-
+  as.numeric(final.df.4.Viz.part.Total.No.ofAllThreeTypes$MesearementValue)
+pdf("./BrainSpan/HalmarkPathways.Density.RND.pdf", height = 20, width = 40)
+final.df.4.Viz.part.Total.No.ofAllThreeTypes %>%
+  ggplot(aes(x = MesearementValue, y = Mesearement, fill = Mesearement)) +
+    geom_density_ridges() +
+      theme_ridges() + facet_grid(TotalNo.of.PrePostUnbiased~.)
+dev.off()
+
+gr <- ggplot(iris, aes(x = Sepal.Length, y = Species)) + 
+  geom_density_ridges()
+gr
+
+```
+
+```{r renaming the columns}
+final.df.4.Viz.part.Total.No.ofAllThreeTypes$Mesearement2 <- final.df.4.Viz.part.Total.No.ofAllThreeTypes$Mesearement
+final.df.4.Viz.part.Total.No.ofAllThreeTypes <-
+  final.df.4.Viz.part.Total.No.ofAllThreeTypes %>%
+    rename(Pathway = Mesearement, No.of.PrenatalBiasedGenes = MesearementValue)
+
+```
+
+
+```{r  density plots for prenatally biased pathways}
+
+pdf("./BrainSpan/HalmarkPathways.Density.PreNatalBiased.RND.pdf", height = 20, width = 40)
+final.df.4.Viz.part.Total.No.ofAllThreeTypes %>%
+  filter(Pathway %in% c("HALLMARK_DNA_REPAIR", "HALLMARK_MYC_TARGETS_V1", "HALLMARK_MYC_TARGETS_V2"))  %>%
+  ggplot(aes(x = No.of.PrenatalBiasedGenes, y = Pathway, fill = Pathway)) +
+     geom_density_ridges(alpha = 0.2) + 
+        geom_vline(
+          data = halmark_gene_sets.4.dysreg.pathways.ThreePreNatalBiased,
+          aes(xintercept=Total.No.ofPrenatalBiased, 
+              color = c("blue", "green", "red") 
+              ), 
+          linetype="dashed",  
+          size = 0, 
+          alpha = 0) + #set  size = 0,  alpha = 0 to remove lines 
+              theme_classic() + 
+                  theme(panel.grid.major.x  = element_blank(),
+                        panel.grid.minor.x = element_blank(), 
+                        text = element_text(size = 60))
+  # geom_vline(data = halmark_gene_sets.4.dysreg.pathways.ThreePreNatalBiased ,aes(xintercept=Total.No.ofPrenatalBiased, color = c("blue","green","red")),
+  #            linetype="dashed", size = 2) +
+  #     
+dev.off()
+
+halmark_gene_sets.4.dysreg.pathways.ThreePreNatalBiased <- 
+halmark_gene_sets.4.dysreg.pathways.PrePostNatal.Added.summarized %>%
+  filter(gs_name %in% c("HALLMARK_DNA_REPAIR", "HALLMARK_MYC_TARGETS_V1", "HALLMARK_MYC_TARGETS_V2"))
+#View(halmark_gene_sets.4.dysreg.pathways.ThreePreNatalBiased)
+
+
+```
+
+
+
+
+
+```{r}
+ingredients <- ggplot_build(gr) %>% purrr::pluck("data", 1)
+
+# Pick the highest point. Could easily add quantiles or other features here.
+density_lines <- ingredients %>%
+  group_by(group) %>% filter(density == max(density)) %>% ungroup()
+density_lines$height
+# Use the highest point to add more geoms
+ggplot(iris, aes(x = Sepal.Length, y = Species)) + 
+  geom_density_ridges(rel_min_height = 0.01) +
+  geom_segment(data = density_lines, 
+               aes(x = x, y = ymin, xend = x, 
+                   yend = ymin+density*scale*iscale)) +
+  geom_text(data = density_lines, 
+            aes(x = x, y = ymin + 0.5 *(density*scale*iscale),
+                label = round(x, 2)),
+            hjust = -0.2)
+```
+
+
+

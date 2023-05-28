@@ -1,0 +1,668 @@
+---
+title: "SNF"
+output: html_notebook
+---
+
+
+```{r Loading libraries}
+
+library(GSVA)
+library(SNFtool)
+library(msigdbr)
+library(limma)
+
+```
+
+
+#Preparing the input layers
+##Transcriptomic layers
+###for MS
+```{r Extracting different gene type}
+#in this script I'm going to extract 1- LNC, known transcript, 2- miR, 3- all smal non-coding gene expression and 
+#4- only protein coding gene expression from all gene count matrix 
+#(LNC-based count matrix will be used for LNC and transcript-based count matrix will be used for the known known transcript)
+setwd("/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/CountMatrices/FinalFiles/NewFiles4SNF.363.Subjects.SubjectIDs/")
+################################################################################################################################################################################################
+#gene level count matrix ============
+#in this part I'm going to:
+#1- build different subsets of count matrix based on different genetic elements 
+#2- doing the DE analysis on each different genetics element
+#3- constructing a layer for that genetic element and only based on DE elements
+#loading the normalizaed count matrix (having gene names)=======
+normalized.count.matrix.363.male.subjectID.colnames <- 
+loadRData("/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/CountMatrices/FinalFiles/normalized.count.matrix.363.male.subjectID.colnames")
+dim(normalized.count.matrix.365.male)#22480   363
+View(normalized.count.matrix.365.male)
+View(id.mapping.old.count.matrices.2.subject.ID)
+id.mapping.old.count.matrices.2.subject.ID <- 
+  as.data.frame(id.mapping.old.count.matrices.2.subject.ID)
+
+dim(normalized.count.matrix.363.male.subjectID.colnames)
+#reading human gene type data details============
+humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol <- 
+  read.csv("/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/CountMatrices/TranscriptLevel/humanGenesDetailsExtractedFromGeneCodeV38_AllScaffoldandOther.csv")
+table(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol$gene_type)#===============
+# IG_C_gene                    IG_C_pseudogene                          IG_D_gene 
+# 23                                 11                                 64 
+# IG_J_gene                    IG_J_pseudogene                      IG_pseudogene 
+# 24                                  6                                  1 
+# IG_V_gene                    IG_V_pseudogene                             lncRNA 
+# 228                                289                              17915 
+# miRNA                           misc_RNA                            Mt_rRNA 
+# 1926                               2408                                  2 
+# Mt_tRNA             polymorphic_pseudogene               processed_pseudogene 
+# 22                                 77                              10824 
+# protein_coding                         pseudogene                           ribozyme 
+# 22757                                 37                                  8 
+# rRNA                    rRNA_pseudogene                             scaRNA 
+# 71                                514                                 51 
+# scRNA                             snoRNA                              snRNA 
+# 1                               1010                               2072 
+# sRNA                                TEC                          TR_C_gene 
+# 6                               1112                                  8 
+# TR_D_gene                          TR_J_gene                    TR_J_pseudogene 
+# 5                                 93                                  4 
+# TR_V_gene                    TR_V_pseudogene   transcribed_processed_pseudogene 
+# 159                                 46                                566 
+# transcribed_unitary_pseudogene transcribed_unprocessed_pseudogene    translated_processed_pseudogene 
+# 148                               1118                                  2 
+# translated_unprocessed_pseudogene                 unitary_pseudogene             unprocessed_pseudogene 
+# 1                                105                               3334 
+# vault_RNA 
+# 1 
+################################################################################################################################################################################################
+#===========gene type freq end========
+humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.ProteinCoding <- 
+  subset(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol, 
+       gene_type == "protein_coding")
+dim(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.ProteinCoding)
+#22757     5
+#The below list contain the different count matrices to be used for independent DE analaysis
+normalized.count.matrix.365.male.different.geneTypes.list <- list()
+################################################################################################################################################################################################
+#=====MIR=======
+humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.MIR<- 
+  subset(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol, 
+       gene_type == "miRNA")
+dim(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.MIR)
+#1926    5
+#extracting mir read count matrix 
+normalized.count.matrix.365.male.MIR <- subset(normalized.count.matrix.365.male, 
+       rownames(normalized.count.matrix.365.male)%in%humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.MIR$gene_name)
+dim(normalized.count.matrix.365.male.MIR) #85 363
+normalized.count.matrix.365.male.different.geneTypes.list[["normalized.count.matrix.365.male.MIR"]] <-
+  normalized.count.matrix.365.male.MIR
+################################################################################################################################################################################################
+#MNT.non.coding.RNA=======
+humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.MTnonCodingRNA <- 
+  subset(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol, 
+       (gene_type == "Mt_tRNA" | gene_type == "Mt_rRNA"))
+dim(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.MTnonCodingRNA)
+#24  5
+#extracting mir read count matrix 
+normalized.count.matrix.365.male.MTnonCodingRNA <- subset(normalized.count.matrix.365.male, 
+                                               rownames(normalized.count.matrix.365.male)%in%humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.MTnonCodingRNA$gene_name)
+dim(normalized.count.matrix.365.male.MTnonCodingRNA) #21 363
+normalized.count.matrix.365.male.different.geneTypes.list[["normalized.count.matrix.365.male.MTnonCodingRNA"]] <-
+  normalized.count.matrix.365.male.MTnonCodingRNA
+################################################################################################################################################################################################
+#other smal non-codingRNAs========
+humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.OtherSmalNonCodingRNA <- 
+  subset(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol, 
+       (gene_type == "scaRNA" | gene_type == "snoRNA" | gene_type == "snRNA"))
+dim(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.OtherSmalNonCodingRNA)
+#3133    5
+#extracting mir read count matrix 
+normalized.count.matrix.365.male.other.Small.noncodingRNAs <- subset(normalized.count.matrix.365.male, 
+                                               rownames(normalized.count.matrix.365.male)%in%humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.OtherSmalNonCodingRNA$gene_name)
+dim(normalized.count.matrix.365.male.other.Small.noncodingRNAs) #177 363
+normalized.count.matrix.365.male.different.geneTypes.list[["normalized.count.matrix.365.male.other.Small.noncodingRNAs"]] <-
+  normalized.count.matrix.365.male.other.Small.noncodingRNAs
+################################################################################################################################################################################################
+
+humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.Pseudogene <- 
+  subset(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol, 
+       (gene_type%in% c("processed_pseudogene",
+                        "pseudogene", 
+                        "transcribed_processed_pseudogene", 
+                        "transcribed_unitary_pseudogene",
+                        "transcribed_unprocessed_pseudogene",
+                        "translated_unprocessed_pseudogene",
+                        "unitary_pseudogene",
+                        "unprocessed_pseudogene"
+       )))
+
+dim(humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.Pseudogene)
+#16133     5
+#extracting mir read count matrix 
+normalized.count.matrix.365.male.Pseudogene <- subset(normalized.count.matrix.365.male, 
+                                               rownames(normalized.count.matrix.365.male)%in%humanGenesDetailsExtractedFromGeneCodeV38_AllScaffol.Pseudogene$gene_name)
+dim(normalized.count.matrix.365.male.Pseudogene)#1732  363
+normalized.count.matrix.365.male.different.geneTypes.list[["normalized.count.matrix.365.male.Pseudogene"]] <-
+  normalized.count.matrix.365.male.Pseudogene
+################################################################################################################################################################################################
+#sig known transcripts 
+#subseting a transcript gene expression count matrix to have only known transcript
+count_matrix_adjusted_male.transcript <- 
+  loadRData("/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/TranscriptLevel/Male/Data/count_matrix_adjusted_male")
+dim(count_matrix_adjusted_male.transcript)#427730    365
+View(count_matrix_adjusted_male.transcript)
+
+#those rows with known transcript 
+row.indx.vctr <- 
+  grep(pattern = "ENS",x =  rownames(count_matrix_adjusted_male.transcript))
+length(row.indx.vctr)#231817
+
+count_matrix_adjusted_male.transcript.known.transcript <- 
+  count_matrix_adjusted_male.transcript[row.indx.vctr,]
+dim(count_matrix_adjusted_male.transcript.known.transcript)#231817    365
+#remving those two redundant subjects=======
+redundant1.index <- 
+  which(colnames(count_matrix_adjusted_male.transcript.known.transcript) == "X2054_myorder_plate_3")
+
+redundant2.index <- 
+  which(colnames(count_matrix_adjusted_male.transcript.known.transcript) == "X1985_myorder_plate_9")
+
+count_matrix_adjusted_male.transcript.known.transcript <- 
+  count_matrix_adjusted_male.transcript.known.transcript[,-c(redundant1.index, redundant2.index)]
+dim(count_matrix_adjusted_male.transcript.known.transcript)#231817    363
+#reordering the columns and assigning subject ID to colnames 
+save(count_matrix_adjusted_male.transcript.known.transcript,
+     file = "count_matrix_adjusted_male.transcript.known.transcript.363")
+#we will use the below genes for computing another layer
+#finally we will use novel transcripts for another paper
+# save(sig_degs_table_male_transcript.known.transcript,
+#      file = "sig_degs_table_male_transcript.known.transcript.363")
+head(count_matrix_adjusted_male.transcript.known.transcript)
+
+count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts <-
+  subset(count_matrix_adjusted_male.transcript.known.transcript,
+       rownames(count_matrix_adjusted_male.transcript.known.transcript)%in%
+         sig_degs_table_male_transcript.known.transcript.363$X)
+
+dim(count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts)
+#4250  363
+save(count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts,
+     file = "count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts")
+pdf("count_matrix_adjusted_male.transcript.known.sig.transcript.box.plot.pdf", height = 20, width = 40)
+boxplot(count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts)
+dev.off()
+count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts.corrMatrix <- 
+  cor(count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts)
+pdf("count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts.corrMatrix.heatMap.pdf", height = 20, width = 20)
+heatmap(count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts.corrMatrix)
+dev.off()
+View(count_matrix_adjusted_male.transcript.known.transcript.4.sig.transcripts.corrMatrix)
+################################################################################################################################################################################################
+#Sig known LNC==========
+#reading count matrix and sig LNC 
+LNC_final_fitted_glm_QL_Male <- 
+  loadRData("/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/CountMatrices/LNC/LNC_final_fitted_glm_QL_Male")
+dim(LNC_final_fitted_glm_QL_Male)
+dim(LNC_final_fitted_glm_QL_Male$counts)#26227   365
+
+View(LNC_final_fitted_glm_QL_Male$counts)
+
+rownames(LNC_final_fitted_glm_QL_Male, 
+         grep(pattern = "|",x =  rownames(LNC.transcript_count_matrix)))
+
+subset(LNC_final_fitted_glm_QL_Male, )
+
+row.indx.vctr <- 
+  grep(pattern = "ENS",x =  rownames(LNC.transcript_count_matrix))
+
+
+LNC.Sig.DE.gene.table <- 
+  read.csv("/Users/apple/Desktop/Eric/Research/FunctionalGenomics/Alaysis/DownStreamAnalysis/CountMatrices/LNC/LNC_Male_DEG_knownGenes.csv")
+dim(LNC.Sig.DE.gene.table)#338   6
+View(LNC.Sig.DE.gene.table)
+
+
+
+
+
+
+
+```
+
+```{r Halmark activity GSVA}
+
+#the below description is from the https://www.bioconductor.org/packages/release/bioc/vignettes/GSVA/inst/doc/GSVA.html
+#the --> show my input types
+
+# The workhorse of the GSVA package is the function gsva(), which requires the following two input arguments:
+# A normalized gene expression dataset, which can be provided in one of the following containers:
+#   -->A matrix of expression values with genes corresponding to rows and samples corresponding to columns.
+#   An ExpressionSet object; see package Biobase.
+#   A SummarizedExperiment object, see package SummarizedExperiment.
+# A collection of gene sets; which can be provided in one of the following containers:
+#   -->A list object where each element corresponds to a gene set defined by a vector of gene identifiers, and the element names correspond to the names of the gene sets.
+#   A GeneSetCollection object; see package GSEABase.
+
+
+
+# When method="gsva" (default), the user can additionally tune the following parameters:
+#   
+#   kcdf: The first step of the GSVA algorithm brings gene expression profiles to a common scale by calculating an expression statistic through a non-parametric estimation of the CDF across samples. 
+# Such a non-parametric estimation employs a kernel function and the kcdf parameter allows the user to specify three possible values for that function: 
+#   (1) "Gaussian", the default value, which is suitable for continuous expression data, such as microarray fluorescent units in logarithmic scale and RNA-seq log-CPMs, log-RPKMs or log-TPMs units of expression; 
+# (2) "Poisson", which is suitable for integer counts, such as those derived from RNA-seq alignments; 
+# (3) "none", which will enforce a direct estimation of the CDF without a kernel function.
+
+
+#reading count matrix and pheno data ========
+load("./pheno_data")
+load("./countMatrix")
+#seubsetting the count matrix based on the genes in the important gene sets for being computaionally efficient======
+
+#Preparig the gene sets========
+##reading MSigDB genesets====
+
+#listing all gene sets
+gene.set.lists <- 
+  msigdbr_collections()
+#subsetting for the genesets only for human
+all_gene_sets = msigdbr(species = "Homo sapiens") 
+View(all_gene_sets)
+#for selecting a sepecific gene set we should use "all_gene_sets$gs_cat" (for the category) 
+#and "all_gene_sets$gs_subcat" (for subcategory where it is possible; for example halmark (H) doesn't have sub-category but C2 has )
+##=====halmark gene set====
+halmark_gene_sets <- all_gene_sets %>%
+  dplyr::filter(gs_cat == "H")
+msigdb.hamlark.gset.idx.list <- 
+  extract.gene.set.list.2be.used.in.GSVA(halmark_gene_sets)
+length(msigdb.hamlark.gset.idx.list)#50
+
+#preparing gene set for GSVA==============
+#converting gene sets to a list of gene sets 2b acceptable for GSVA 
+#INPUT: "gene.set.df" a dataframe that was extracted from the msigdbr that corresond to a set of genesets 
+#OUTPUt: a list of gene sets for using in the GSVA
+extract.gene.set.list.2be.used.in.GSVA <- function(gene.set.df)
+{
+  gene_sets.names <- 
+    unique(gene.set.df$gs_name)
+  no.of.gene.sets <- 
+    length(gene_sets.names)#50
+  geneset.list <- list()
+  for (i in c(1:no.of.gene.sets)) 
+  {
+    #extracting the genese for the current gene set (gene set #i)
+    #using a subset of the original df that corresponds to the current gene set
+    gene.set.df.subset.4.the.current.geneset <- 
+      subset(gene.set.df, gs_name == gene_sets.names[i])
+    #extracting unique gene symbols
+    gene.names.vctr <- unique(gene.set.df.subset.4.the.current.geneset$gene_symbol)
+    #adding to the final list 
+    geneset.list[[gene_sets.names[i]]] <- gene.names.vctr
+  }
+  return(geneset.list)
+}
+
+
+
+
+#running GSVA =========
+#after running gsva we have the pathway level activities (instead of gene level)
+#the first parameter "expr" is a count matrix with genes as rows and samples as columns
+#the second parameter "gset.idx.list" is a list of gene name sets.
+#the third parameter "kcdf" should be "Poisson" for RNA-Seq data.
+GSVA.geneSet.msigdb.hamlark.list <- 
+  gsva(expr = countMatrix, 
+       gset.idx.list = msigdb.hamlark.gset.idx.list, kcdf = "Poisson")
+
+#changing colnames of the GSVA result matrix to subjectIDs
+colnames(GSVA.geneSet.msigdb.hamlark.list) <- 
+  rownames(pheno_data)
+
+
+#running limma =============
+#edgeR dosen't work because of negative values in the GSVA generated score matrix
+#making the design matrix for the limma
+djx_vctr <- 
+  pheno_data$recentDxJ_dxCode
+mod <- model.matrix(~ factor(djx_vctr))
+colnames(mod) <- c("ASD", "non.ASD")
+#checking the design matrix 
+View(cbind(mod, djx_vctr))#DONE!
+fit <- lmFit(GSVA.geneSet.msigdb.hamlark.list, mod)
+fit <- eBayes(fit)
+res <- decideTests(fit, p.value=0.05)
+#based on the limma recomendations 
+tt <- 
+  topTable(fit, coef=2, n=Inf, adjust.method = "BH")
+DEpwys <- rownames(tt)[tt$adj.P.Val <= adj.P.Val.threshold]
+View(tt)
+View(DEpwys)
+
+```
+
+
+
+```{r}
+layers.to.be.used.in.SNF <- list()
+#loading transcriptomic correlation matrices
+load("./LNC_normalized.count.matrix.corr")
+load("./SNC_normalized.count.matrix.corr")
+load("./AllGenes_normalized.count.matrix.corr")
+load("./HalmarkPathways.GSVA.Score_normalized.count.matrix.corr")
+LNC_normalized.dist.matrix <- 
+  (1- LNC_normalized.count.matrix.corr )
+LNC_normalized.affinity.matrix<- 
+  affinityMatrix(LNC_normalized.dist.matrix)
+layers.to.be.used.in.SNF[["LNC"]] <- 
+  LNC_normalized.affinity.matrix
+#the same for other three transcriptomic layes
+```
+
+
+##Clinical Layers
+
+```{r}
+#the complete_pheno_data cntains clinical measures (iSNF&xSNF)
+load("./complete_pheno_data")
+
+no.of.clinical.net.layers <- 19
+for (i in c(5:no.of.clinical.net.layers)) 
+{
+  #extracting the feature
+  current.feature.of.ineterest <- 
+    complete_pheno_data[,i]
+  #computing the affinity matrix for this layer
+  layers.to.be.used.in.SNF[[i]]  <- 
+    peparing.a.layer.for.being.used.as.an.input.in.SNF(feature.of.ineterest = current.feature.of.ineterest, 
+                                                       names.vctr = rownames(complete_pheno_data))
+  
+  }
+
+
+
+#===========peparing.a.layer.for.being.used.as.an.input.in.SNF
+#This function tries to get a varible (vector) and returen a ready-to-use-layer for SNF
+#feature.of.ineters if a clinical feature like Mullen_ELC (it should be numerical)
+#this function does: 1- standard normalization 2-computing distance matrix 3-computing affinity matrix
+peparing.a.layer.for.being.used.as.an.input.in.SNF <- function(feature.of.ineters)
+{
+  library(SNFtool)
+  feature.of.ineters_std.nrm <- standardNormalization(feature.of.ineters)
+  feature.of.ineters_std.nrm_dist.matrix <- 
+    as.matrix(dist(feature.of.ineters_std.nrm))
+  feature.of.ineters_std.nrm_affinity.matrix <- 
+    affinityMatrix(feature.of.ineters_std.nrm_dist.matrix)
+  return(feature.of.ineters_std.nrm_affinity.matrix)
+}
+
+```
+
+
+
+#Running SNF
+
+
+```{r}
+
+
+#default parameter
+## First, set all the parameters:
+library(SNFtool)
+K = 30;		# number of neighbors, usually (10~30)  #!!! previously I used 20
+alpha = 0.5;  	# hyperparameter, usually (0.3~0.8)
+T = 20; 	# Number of Iterations, usually (10~20) #!!! previously I used 10
+
+
+layers.to.be.used.in.SNF.iSNF <- 
+  layers.to.be.used.in.SNF[c(1:12)]
+
+Fused_Nets.12.layers.iSNF <-
+  SNF(layers.to.be.used.in.SNF.iSNF, K, T)
+
+#repeated clustering=============
+SNF_clusteringDetails_list_of_lists <-
+  Repeated.spectralClustering.on.FusedNets(Fused_Nets = Fused_Nets.12.layers.iSNF,
+                                           l1 =  2, l2 = 10, phenodata = complete_pheno_data
+  )
+
+
+
+indx.vctr.4.imortant.clinical.mes <- 
+  c(
+    which(colnames(complete_pheno_data) == "ET1_FixationGeo"),
+    which(colnames(complete_pheno_data) =="ados_CoSoTot_1.y"),
+    which(colnames(complete_pheno_data) == "ados_RRTot_1.y"),
+    which(colnames(complete_pheno_data) == "ados_CoSoTotRRTot_1.y"),
+    which(colnames(complete_pheno_data) == "vine_AdapBehav_DomStd_1.y"),
+    which(colnames(complete_pheno_data) == "vine_DlyTotal_DomStd_1.y"),
+    which(colnames(complete_pheno_data) == "vine_SocTotal_DomStd_1.y"),
+    which(colnames(complete_pheno_data) == "vine_MtrTotal_DomStd_1"),
+    which(colnames(complete_pheno_data) == "vine_DomStdTotal_1.y"),
+    which(colnames(complete_pheno_data) == "mullen_ELC_Std_1.y"),
+    which(colnames(complete_pheno_data) == "mullen_RLT_1"),
+    which(colnames(complete_pheno_data) == "ET1_SaccadesPerSecondGeo"),
+    which(colnames(complete_pheno_data) == "ET1_SaccadesPerSecondSoc"),
+    which(colnames(complete_pheno_data) == "ET1_SaccPerSecondRatio"),
+    which(colnames(complete_pheno_data) == "DxJ_Count.x"),
+    which(colnames(complete_pheno_data) == "mullen_ELT_1")
+  )
+
+complete_pheno_data[,indx.vctr.4.17.imortant.clinical.mes] <- 
+  apply(complete_pheno_data[,indx.vctr.4.17.imortant.clinical.mes], 2, as.numeric)
+
+#one of the following lines should be run based on the Male/Female data. Beacuse, it should be to consider as a global variable in the related functions
+complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3 <- complete_pheno_data
+
+clinical_cluster_enrichment_analysis_Four_My_SNF_Clustering.male.11.layers.363Subjects.12.20.2021 <- 
+  clinical_cluster_enrichment_analysis(list_of_list_of_clusters = SNF_clusteringDetails_list_of_lists, 
+                                       vctr_for_stat_analysis = indx.vctr.4.17.imortant.clinical.mes)
+```
+
+```{r Repeated.spectralClustering}
+#========Repeated.spectralClustering.on.FusedNets
+# this function does spectral clustering several times given a net (fusedNet)
+#INPUT: Fused_Nets: fused network; l1, l2 the sizes of the smallest and largest clustering that should be used
+#so, l2-l1+1 different spectral clustering would be done
+#OUTPUT: a list of lists which contains details for all of the l2-l1+1 clusterings 
+Repeated.spectralClustering.on.FusedNets <- function(Fused_Nets, l1, l2, phenodata_4_SNF_Clustering)
+{
+  library(SNFtool)
+  #int the next for loop all possible clustering size which is determined in the clusterSizeVec
+  #will be selected one by one and then for each one the rseult clustering would be saved in the My_SNF_clusteringDetails_list_of_lists
+  clusterSizeVec <- c(l1:l2)
+  My_SNF_clusteringDetails_list_of_lists <- list()
+  loop_index <- 1
+  for(C in clusterSizeVec)
+  {
+    group = spectralClustering(Fused_Nets, C)	# the final subtypes information
+    #displayClusters(Fused_Nets, group)
+    Complete_phenodata_and_SNF_clustring <- 
+      cbind(MY_SNF_Clustering=group, phenodata_4_SNF_Clustering)
+    #constructing a list of lists for passing to the "clinical_cluster_enrichment_analysis" function
+    My_SNF_Cluster_No <- C
+    this_cluster <- list()
+    for (i in c(1:My_SNF_Cluster_No)) {
+      clusterDetails_data_frame <- subset(Complete_phenodata_and_SNF_clustring, Complete_phenodata_and_SNF_clustring$MY_SNF_Clustering == i)  
+      this_cluster[[i]] <- clusterDetails_data_frame$SubjectId
+    }
+    My_SNF_clusteringDetails_list_of_lists[[loop_index]] <- this_cluster
+    loop_index <- loop_index + 1
+  }
+  return(My_SNF_clusteringDetails_list_of_lists)
+}
+```
+
+
+```{r clinical_cluster_enrichment_analysis}
+
+clinical_cluster_enrichment_analysis <- function(list_of_list_of_clusters, vctr_for_stat_analysis)
+{
+  number_of_clusterings <- length(list_of_list_of_clusters)
+  result_list <- list()
+  loop_index <- 1
+  for (current_expression_based_clustering in list_of_list_of_clusters)
+  {
+    enrichment_results_for_the_current_clustering <- c()
+    for (current_cluster in current_expression_based_clustering) 
+    {
+      x <- do.Analysis(current_cluster)
+      x <- c((loop_index + 2), length(current_cluster), x) # "loop_index + 2" is the index of the clustering
+      enrichment_results_for_the_current_clustering <- rbind(enrichment_results_for_the_current_clustering, x)
+    }
+    enrichment_results_for_the_current_clustering <- as.data.frame(enrichment_results_for_the_current_clustering)
+    colnames(enrichment_results_for_the_current_clustering) <- colNames_4_clustering_enrichment
+    result_list[[loop_index]] <- enrichment_results_for_the_current_clustering
+    loop_index <- loop_index + 1
+  }
+  
+  #!!! do statistical significance analysis 
+  p.value.list <- do.statistical_significance_analysis(list_of_list_of_clusters, vctr_for_stat_analysis)
+  final_list <- list(enrichment_results_details = result_list, p_values = p.value.list)
+  return(final_list)
+  #return(result_list) 
+}
+
+do.t.test <- function(cluster.1, cluster.2, vctr) 
+{
+  #I'm trying to compute three kindes of results: 1- only for ASD, 2- Only TDs, and 3- for all kids
+
+  pheno_data_for_this_cluster_ASD.1 <- subset(complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3, 
+                                            complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$SubjectId %in% cluster.1 & 
+                                              complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$Edited_DjX == "ASD")
+  
+  pheno_data_for_this_cluster_ASD.2 <- subset(complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3, 
+                                              complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$SubjectId %in% cluster.2 & 
+                                                complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$Edited_DjX == "ASD")
+  
+  
+  pheno_data_for_this_cluster_TD.1 <- subset(complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3, 
+                                              complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$SubjectId %in% cluster.1 & 
+                                                complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$Edited_DjX == "TD")
+  
+  pheno_data_for_this_cluster_TD.2 <- subset(complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3, 
+                                              complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$SubjectId %in% cluster.2 & 
+                                                complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$Edited_DjX == "TD")
+  
+  pheno_data_for_this_cluster.1 <- subset(complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3, 
+                                        complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$SubjectId %in% cluster.1)
+  
+  pheno_data_for_this_cluster.2 <- subset(complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3, 
+                                          complete_pheno_data_subset_ASD_TD_longitudinal_correctedV3$SubjectId %in% cluster.2)
+  
+  res <- c()
+  for (i in vctr) # doing t.test for all important variables 
+  {
+    a <- NA
+    b <- NA
+    c <- NA
+    v.1 <- as.numeric(na.omit(pheno_data_for_this_cluster_ASD.1[,i]))
+    v.2 <- as.numeric(na.omit(pheno_data_for_this_cluster_ASD.2[,i]))
+    #if lengths of these vectors are <2 then we got error
+    if ((length(v.1) >= 2) & (length(v.2) >= 2) & (var(na.omit(v.1))!=0 | var(na.omit(v.2))!=0) ) 
+    {
+      #print("a")
+      #print(abs(max(v.1) - min(v.1)) == 0)
+      #print(abs(max(v.2) - min(v.2)) == 0)
+      a <- (t.test(v.1, v.2))$p.value
+    }
+    
+    v.1 <- as.numeric(na.omit(pheno_data_for_this_cluster_TD.1[,i]))
+    v.2 <- as.numeric(na.omit(pheno_data_for_this_cluster_TD.2[,i]))
+    if ((length(v.1) >= 2) & (length(v.2) >= 2) & (var(na.omit(v.1))!=0 | var(na.omit(v.2))!=0) )  
+    {
+      b <- (t.test(v.1, v.2))$p.value
+    }
+    
+    v.1 <- as.numeric(na.omit(pheno_data_for_this_cluster.1[,i]))
+    v.2 <- as.numeric(na.omit(pheno_data_for_this_cluster.2[,i]))
+    if ((length(v.1) >= 2) & (length(v.2) >= 2) & (var(na.omit(v.1))!=0 | var(na.omit(v.2))!=0) )  
+    {
+      c <- (t.test(v.1, v.2))$p.value
+    }    
+
+    name.str <- colnames(pheno_data_for_this_cluster_ASD.1)[i] #assigning meaningful names 
+    a.name <- paste(name.str,"t.test.ASD",sep = "_")
+    b.name <- paste(name.str,"t.test.TD",sep = "_")
+    c.name <- paste(name.str,"t.test.All",sep = "_")
+    temp <- c(a, b, c)
+    names(temp) <- c(a.name, b.name, c.name)
+    res <- c(res, temp)
+
+    
+  }
+  return(res)
+
+}
+
+do.statistical_significance_analysis <- function(list_of_list_of_clusters, vctr)
+{
+  #this function get a list of lists (clusterings) and compute t.test for some of important variables comparing the clusters
+  #vctr includes the index of those important variables in the pheno data 
+  
+  number_of_clusterings <- length(list_of_list_of_clusters)
+  result_list <- list()
+  loop_index <- 1
+  for (current_clustering in list_of_list_of_clusters)
+  {
+    t_test_results_for_the_current_clustering <- c()
+    no.of.clusters <- length(current_clustering)
+    print(no.of.clusters)
+    for (i in c(1:(no.of.clusters)))
+    {
+      y <- c()
+      for (j in c(1:no.of.clusters)) 
+      {
+        x <- do.t.test(current_clustering[[i]], current_clustering[[j]], vctr)
+        #x is vector of length 3*length(vctr) of p.values from t.test (for three cases: ASD, TD, and ALL)
+        x_new_name <- paste("ThisCluster", as.character(j), sep = "vs.")
+        names(x) <- element.Wise.pasting(vctr = names(x), str = x_new_name) 
+        if(length(y) == 0)
+        {
+          y <- x
+        }
+        else 
+        {
+          y <- c(y, x)
+        }
+      }
+      
+      #number of pvalues (len(y)) would be: len(vctr) * 3 * no.of.clusters.
+      # 3: beacuse we will test ASD, TD, and  All.
+      # no.of.clusters: because we compare every cluster with all clusters (including itself)
+      
+      if(length(t_test_results_for_the_current_clustering) == 0)
+      {
+        t_test_results_for_the_current_clustering <- y
+      }
+      else 
+      {
+        t_test_results_for_the_current_clustering <- rbind(t_test_results_for_the_current_clustering, y)
+      }
+      
+      
+    }
+
+    t_test_results_for_the_current_clustering <- as.data.frame(t_test_results_for_the_current_clustering)
+    result_list[[loop_index]] <- t_test_results_for_the_current_clustering
+    loop_index <- loop_index + 1
+  }
+  #!!! do statistical significance analysis 
+  return(result_list) 
+}
+
+do.Analysis <- function(the_cluster)
+{
+  analysis_res <- c()
+  analysis_res <- c(analysis_res, length(the_cluster))
+  analysis_res <- c(analysis_res, get.GeoPref_SocialPercent((the_cluster)))
+  analysis_res <- c(analysis_res, get.ASD_percent(the_cluster)) 
+  analysis_res <- c(analysis_res, get.brainActivation(the_cluster)) 
+  analysis_res <- c(analysis_res, get.mullenScore(the_cluster)) 
+  analysis_res <- c(analysis_res, get.vineScores(the_cluster))
+  analysis_res <- c(analysis_res, get.SNF(the_cluster))
+  analysis_res <- c(analysis_res, get.ADOS_details(the_cluster)) 
+  analysis_res <- c(analysis_res, get.Age(the_cluster)) 
+  analysis_res <- c(analysis_res, get.no_of_djx_changes(the_cluster)) 
+  return(analysis_res)
+}
+
+```
+
+
+

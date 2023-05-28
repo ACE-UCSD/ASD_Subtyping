@@ -1,0 +1,134 @@
+---
+title: "DE Anaysis"
+output: html_notebook
+---
+
+
+```{r Loading libraries}
+library(sva)
+library(limma)
+library(DESeq2)
+library(edgeR)
+library(PepsNMR)
+library(edgeR)
+library(multcompView)
+```
+
+```{r Loading data}
+load("./phenodata")
+load("./count_matrix")
+
+dir_path <- "..."
+
+
+driver_function_4_DE_Analysis(count_matrix = count_matrix,  
+                phenodata = phenodata, 
+                batch = c(phenodata$PlateNumber, phenodata$age) , 
+                djx_vctr =  phenodata$Edited_DjX, 
+                dir_path = dir_path , specific_psotfix = "_Female_Transcript" )
+
+```
+
+
+```{r Driver function}
+#INPUT: 
+#count_matrix: count matrix; 
+#phenodata: the cols of count matrix must have corresponding rows in the pheno data
+#batch a vector of batch (e.g plate) this vector
+#corresponds to the cols of the count matrix 
+#djx_vctr: a vector of diagnosis (this vectors determines which samples belong to which group)
+#dir_path is the path in which csv and other files will be written (with ending "/")
+#specific_psotfix: a string that will be used for appending to the end of the variable for saving
+#Important: by default we considered ASD and TD as the two djx for the final DE step
+
+#OUTPUT: Saving the results in the path and returung the DE table: sig_degs_table
+#IMPORTANT: This function assuems that the potential outlires have been removed from the count matrix and also from the pheno data
+driver_function_4_DE_Analysis <- function(
+  count_matrix, phenodata, batch, djx_vctr, dir_path, specific_psotfix )
+{
+  #batch effect correction
+  count_matrix_adjusted <- 
+    batchEffcetRemoval(count_matrix = count_matrix, batch = batch)
+  #writing the corrected count matrix for future uses
+  write.csv(count_matrix_adjusted, 
+       file = paste(dir_path, "DEG_Results_List", specific_psotfix, ".csv",sep ="count_matrix_adjusted" ))
+  #Doing DE analysis by calling de_analysis_using_edgeR function 
+  DEG_Results_List <- 
+    de_analysis_using_edgeR(
+      count_matrix = count_matrix_adjusted, djx_vctr = djx_vctr, phenodata = phenodata)
+  #saving the results to disk
+  save(DEG_Results_List, 
+       file = paste(dir_path, "DEG_Results_List", specific_psotfix, sep ="" ))
+  return(DEG_Results_List)
+}
+
+```
+
+
+```{r Batch removal and edgeR functions}
+
+#Calling ComBat_seq to adjust for known batches=============
+#INPUT: count_matrix: count matrix; batch a vector of batch (e.g plate) this vector
+#corresponds to the cols of the count matrix 
+#OUTPUT: Batch adjusted count marix 
+batchEffcetRemoval <- function(count_matrix, batch)
+{
+  adjusted_counts <- 
+    ComBat_seq(as.matrix(count_matrix), batch=batch, group=NULL)
+  return(adjusted_counts)
+}
+
+
+#Calling edgeR to do DE analysis=======================================================================================
+#INPUT: count_matrix: count matrix (batch adjusted); djx_vctr: a vector of diagnosis (this vectors determines which samples belong to which group)
+#Important: by default we considered ASD and non.ASD as the two djx so for the final DE step
+#phenodata: is used only for getting the number of samples for determining the low expressed genes
+#OUTPUT: A list of three elements: deg_res: DEG table, fitted_glm_QL (DGE object after normalization and fitting GLM_QL), final_y_dgelist_edgeR (DGE object after normalization)
+de_analysis_using_edgeR <- function(count_matrix, djx_vctr, phenodata)
+{
+  group_djx <- as.factor(djx_vctr)
+    #constructing the DGE object that will be used by edgR 
+  y_dgelist_edgeR <- DGEList(count_matrix, group = group_djx, genes = rownames(count_matrix))
+  options(digits=3)
+  #EdgeR normalization ====================
+  #Here the cutoff for the CPM will be considered 10/L where L is the minimum library size in millions. 
+  print("filtering very low expressed features")
+  cpm_threshold <- 10/(min(y_dgelist_edgeR$samples$lib.size)/1000000)
+  #we will keep those of genes (genetic features) that have cpm>cpm_threshold in at least 10 samples or half of the samples
+  keep <- rowSums(cpm(y_dgelist_edgeR) > cpm_threshold) >= min(10, dim(phenodata)[1]/2)
+  y_dgelist_edgeR <- y_dgelist_edgeR[keep, , keep.lib.sizes=FALSE]
+  print("Normalization")
+  y_dgelist_edgeR <- calcNormFactors(y_dgelist_edgeR)
+  
+  #Copmuting the dispersion using design matrix=========
+  design <- model.matrix(~0+group_djx)
+  colnames(design) <- levels(group_djx)
+  y_dgelist_edgeR <- estimateDisp(y_dgelist_edgeR, design, robust=TRUE)
+  
+  #"For RNA-seq studies, the NB dispersions tend to be higher for genes with very low counts. The dispersion trend tends to decrease smoothly with abundance and to asymptotic to a constant value for genes with larger counts. From our past experience, the asymptotic value for the BCV tends to be in range from 0.05 to 0.2 for genetically identical mice or cell lines, whereas somewhat larger values (> 0.3) are observed for human subjects."
+  
+  # "Under the QL framework, the NB dispersion trend is used to describe the overall biological variability across all genes, and gene-speci c variability above and below the overall level is picked up by the QL dispersion." 
+  #The estimation of QL dispersions is performed using the glmQLFit function:
+  #normalizatoin
+  print("Fitting GLM")
+  fitted_glm_QL <- glmQLFit(y_dgelist_edgeR, design, robust=TRUE)
+  #plotQLDisp(fitted_glm_QL)
+  
+  #Differential expression analysis
+  print("Testing for DE")
+  ASD_vs_non.ASD_contrast <- makeContrasts(ASD-non.ASD, levels=design)
+  deg_res <- glmQLFTest(fitted_glm_QL, contrast=ASD_vs_non.ASD_contrast)
+  #in the below lis, elements were sorted from most detailed and most processessed one to most least peossessed one
+  res <- list(deg_res = deg_res, 
+              fitted_glm_QL= fitted_glm_QL, 
+              y_dgelist_edgeR=y_dgelist_edgeR)
+  
+  return(res)
+}
+```
+
+
+
+
+The first transcriptomic PSN was constructed based on the similarity of the whole transcriptome. Pearson correlation coefficients (PCC) of the corresponding expression vectors were used to compute the similarity for each pair of subjects. The second transcriptomic PSN was constructed based on lncRNAs that were differentially expressed comparing ASD (N= 152) to nonASD (N=211) at p-value<5E-02. The third transcriptomic PSN was constructed in a similar way based on sncRNAs. The last transcriptomic PSN was constructed based on the PCC of the GSVA activity scores of the 50 hallmark pathways. 
+
