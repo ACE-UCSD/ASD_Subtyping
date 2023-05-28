@@ -1,0 +1,116 @@
+---
+title: "GSVA"
+output: html_notebook
+---
+This notebook shows the GSVA analysis hase been doen for calculating the pathway activity scores.
+
+```{r Halmark activity GSVA}
+
+#the below description is from the https://www.bioconductor.org/packages/release/bioc/vignettes/GSVA/inst/doc/GSVA.html
+#the --> show my input types
+
+# The workhorse of the GSVA package is the function gsva(), which requires the following two input arguments:
+# A normalized gene expression dataset, which can be provided in one of the following containers:
+#   -->A matrix of expression values with genes corresponding to rows and samples corresponding to columns.
+#   An ExpressionSet object; see package Biobase.
+#   A SummarizedExperiment object, see package SummarizedExperiment.
+# A collection of gene sets; which can be provided in one of the following containers:
+#   -->A list object where each element corresponds to a gene set defined by a vector of gene identifiers, and the element names correspond to the names of the gene sets.
+#   A GeneSetCollection object; see package GSEABase.
+
+
+
+# When method="gsva" (default), the user can additionally tune the following parameters:
+#   
+#   kcdf: The first step of the GSVA algorithm brings gene expression profiles to a common scale by calculating an expression statistic through a non-parametric estimation of the CDF across samples. 
+# Such a non-parametric estimation employs a kernel function and the kcdf parameter allows the user to specify three possible values for that function: 
+#   (1) "Gaussian", the default value, which is suitable for continuous expression data, such as microarray fluorescent units in logarithmic scale and RNA-seq log-CPMs, log-RPKMs or log-TPMs units of expression; 
+# (2) "Poisson", which is suitable for integer counts, such as those derived from RNA-seq alignments; 
+# (3) "none", which will enforce a direct estimation of the CDF without a kernel function.
+
+
+#reading count matrix and pheno data ========
+load("./pheno_data")
+load("./countMatrix")
+#seubsetting the count matrix based on the genes in the important gene sets for being computaionally efficient======
+
+#Preparig the gene sets========
+##reading MSigDB genesets====
+
+#listing all gene sets
+gene.set.lists <- 
+  msigdbr_collections()
+#subsetting for the genesets only for human
+all_gene_sets = msigdbr(species = "Homo sapiens") 
+View(all_gene_sets)
+#for selecting a sepecific gene set we should use "all_gene_sets$gs_cat" (for the category) 
+#and "all_gene_sets$gs_subcat" (for subcategory where it is possible; for example halmark (H) doesn't have sub-category but C2 has )
+##=====halmark gene set====
+halmark_gene_sets <- all_gene_sets %>%
+  dplyr::filter(gs_cat == "H")
+msigdb.hamlark.gset.idx.list <- 
+  extract.gene.set.list.2be.used.in.GSVA(halmark_gene_sets)
+length(msigdb.hamlark.gset.idx.list)#50
+
+#preparing gene set for GSVA==============
+#converting gene sets to a list of gene sets 2b acceptable for GSVA 
+#INPUT: "gene.set.df" a dataframe that was extracted from the msigdbr that corresond to a set of genesets 
+#OUTPUt: a list of gene sets for using in the GSVA
+extract.gene.set.list.2be.used.in.GSVA <- function(gene.set.df)
+{
+  gene_sets.names <- 
+    unique(gene.set.df$gs_name)
+  no.of.gene.sets <- 
+    length(gene_sets.names)#50
+  geneset.list <- list()
+  for (i in c(1:no.of.gene.sets)) 
+  {
+    #extracting the genese for the current gene set (gene set #i)
+    #using a subset of the original df that corresponds to the current gene set
+    gene.set.df.subset.4.the.current.geneset <- 
+      subset(gene.set.df, gs_name == gene_sets.names[i])
+    #extracting unique gene symbols
+    gene.names.vctr <- unique(gene.set.df.subset.4.the.current.geneset$gene_symbol)
+    #adding to the final list 
+    geneset.list[[gene_sets.names[i]]] <- gene.names.vctr
+  }
+  return(geneset.list)
+}
+
+
+
+
+#running GSVA =========
+#after running gsva we have the pathway level activities (instead of gene level)
+#the first parameter "expr" is a count matrix with genes as rows and samples as columns
+#the second parameter "gset.idx.list" is a list of gene name sets.
+#the third parameter "kcdf" should be "Poisson" for RNA-Seq data.
+GSVA.geneSet.msigdb.hamlark.list <- 
+  gsva(expr = countMatrix, 
+       gset.idx.list = msigdb.hamlark.gset.idx.list, kcdf = "Poisson")
+
+#changing colnames of the GSVA result matrix to subjectIDs
+colnames(GSVA.geneSet.msigdb.hamlark.list) <- 
+  rownames(pheno_data)
+
+
+#running limma =============
+#edgeR dosen't work because of negative values in the GSVA generated score matrix
+#making the design matrix for the limma
+djx_vctr <- 
+  pheno_data$recentDxJ_dxCode
+mod <- model.matrix(~ factor(djx_vctr))
+colnames(mod) <- c("ASD", "non.ASD")
+#checking the design matrix 
+View(cbind(mod, djx_vctr))#DONE!
+fit <- lmFit(GSVA.geneSet.msigdb.hamlark.list, mod)
+fit <- eBayes(fit)
+res <- decideTests(fit, p.value=0.05)
+#based on the limma recomendations 
+tt <- 
+  topTable(fit, coef=2, n=Inf, adjust.method = "BH")
+DEpwys <- rownames(tt)[tt$adj.P.Val <= adj.P.Val.threshold]
+View(tt)
+View(DEpwys)
+
+```
