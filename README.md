@@ -13,10 +13,6 @@ This repo contains the follwing notebooks.
 * Running edgeR for DEG analysis
 ## Brain Span Enrichment
 * Cluster enrichment based on Brainspan database and Satterstrom data 
-## Brain Span Enrichment
-* Cluster enrichment based on Brainspan database and Satterstrom data 
-## Cluster Enrichment
-* Cluster enrichment visualization
 ## Cluster Enrichment
 * Cluster enrichment visualization
 ## Statistical Analysis
